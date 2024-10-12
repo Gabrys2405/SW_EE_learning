@@ -33,6 +33,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+void SysTick_Handler(void);
 
 /* USER CODE END PD */
 
@@ -42,6 +43,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+
 I2C_HandleTypeDef hi2c1;
 
 /* USER CODE BEGIN PV */
@@ -50,12 +53,28 @@ volatile uint32_t var2 = 315;
 
 char* var1_str;
 char* var2_str;
+
+volatile uint32_t time_adc_conv = 0;
+volatile uint8_t adc_flag = 0;
+volatile uint32_t time_oled = 0;
+volatile uint8_t oled_flag = 0;
+volatile uint32_t debug_counter = 0;
+volatile uint8_t clear_flag = 0;
+
+
+uint32_t volume = 0;
+volatile float progress = 0;
+
+char* volume_str;
+
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
+static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -85,6 +104,15 @@ int main(void)
 
 		return buffer;
 	}
+
+	uint8_t calculate_progress(uint32_t value){
+
+		uint32_t result = 0;
+		value /= 4096;
+		result = value * 128;
+
+		return result;
+	}
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -106,43 +134,84 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_I2C1_Init();
+  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
+  HAL_ADC_Start(&hadc1);
 
-  var1_str = uint32_to_string(var1);
-  var2_str = uint32_to_string(var2);
 
   SSD1306_Init();
-  SSD1306_GotoXY(0, 0);
-  SSD1306_Puts(var1_str, &Font_11x18, 1);
-  SSD1306_GotoXY(0, 30);
-  SSD1306_Puts(var2_str, &Font_11x18, 1);
-  SSD1306_UpdateScreen();
-
-  SSD1306_ScrollLeft(0, 10);
-  HAL_Delay(3000);
-  SSD1306_ScrollRight(0, 10);
-  HAL_Delay(3000);
-  SSD1306_Stopscroll();
-  HAL_Delay(3000);
+//  SSD1306_GotoXY(5, 0);
+//  SSD1306_Puts("Hello", &Font_11x18, 1);
+//  SSD1306_GotoXY(5, 30);
+//  SSD1306_Puts("Gabriel", &Font_11x18, 1);
+//  SSD1306_UpdateScreen();
+//
+////  SSD1306_ScrollLeft(0, 10);
+////  HAL_Delay(3000);
+////  SSD1306_ScrollRight(0, 10);
+//  HAL_Delay(5000);
+//  SSD1306_Stopscroll();
+//  HAL_Delay(3000);
   SSD1306_Clear();
 
-  SSD1306_DrawBitmap(0, 0, img, 128, 64, 1);
-  SSD1306_UpdateScreen();
+//  SSD1306_DrawBitmap(0, 0, img, 128, 64, 1);
+//  SSD1306_UpdateScreen();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+//	HAL_Delay(1000);
+//	HAL_GPIO_TogglePin(USER_LED_GPIO_Port,USER_LED_Pin);
+//	HAL_Delay(1000);
+//	HAL_GPIO_TogglePin(USER_LED_GPIO_Port,USER_LED_Pin);
 
-	HAL_Delay(1000);
-	HAL_GPIO_TogglePin(USER_LED_GPIO_Port,USER_LED_Pin);
-	HAL_Delay(1000);
-	HAL_GPIO_TogglePin(USER_LED_GPIO_Port,USER_LED_Pin);
+  if(adc_flag){
+
+	  HAL_ADC_PollForConversion(&hadc1,1000);
+	  volume = HAL_ADC_GetValue(&hadc1);
+	  if (volume<= 1000){
+		  if (clear_flag == 0){
+			  clear_flag = 1;
+		  }
+	  }
+	  else if (volume >= 1000){
+		  clear_flag = 0;
+	  }
+	  adc_flag = 0;
+	  }
+  if (oled_flag){
+	  SSD1306_UpdateScreen();
+	  if(clear_flag == 1){
+
+		  SSD1306_Clear();
+		  clear_flag = 2;
+	  }
+
+
+	  volume_str = uint32_to_string(volume);
+	  SSD1306_GotoXY(40, 5);
+	  SSD1306_Puts(volume_str, &Font_11x18, 1);
+	  SSD1306_UpdateScreen();
+	  SSD1306_GotoXY(0,40);
+	  progress = calculate_progress(volume);
+	  SSD1306_DrawFilledRectangle(0,40,128,10,1);
+	  SSD1306_UpdateScreen();
+
+////	  SSD1306_Puts(volume_str, &Font_11x18, 1);
+//	  SSD1306_UpdateScreen();
+//	  SSD1306_DrawRectangle(16,25,100,3,1);
+//
+//	  SSD1306_UpdateScreen();
+	  oled_flag = 0;
+
+
+
+  }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
 
   }
   /* USER CODE END 3 */
@@ -156,6 +225,7 @@ void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+  RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
@@ -185,6 +255,59 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC;
+  PeriphClkInit.AdcClockSelection = RCC_ADCPCLK2_DIV6;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+/**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Common config
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ScanConvMode = ADC_SCAN_ENABLE;
+  hadc1.Init.ContinuousConvMode = ENABLE;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.NbrOfConversion = 1;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_0;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
 }
 
 /**
@@ -253,7 +376,30 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void SysTick_Handler(void)
+{
+  /* USER CODE BEGIN SysTick_IRQn 0 */
 
+  /* USER CODE END SysTick_IRQn 0 */
+  HAL_IncTick();
+  /* USER CODE BEGIN SysTick_IRQn 1 */
+  time_adc_conv++;
+  time_oled++;
+  /* USER CODE END SysTick_IRQn 1 */
+
+  if (time_adc_conv == 10){
+	  adc_flag = 1;
+	  debug_counter++;
+	  time_adc_conv = 0;
+  }
+  if (time_oled == 20){
+  	  oled_flag = 1;
+  	  time_oled = 0;
+  }
+
+
+
+}
 /* USER CODE END 4 */
 
 /**
